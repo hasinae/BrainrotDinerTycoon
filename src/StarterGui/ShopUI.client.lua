@@ -1,287 +1,210 @@
--- ShopUI.client.lua
--- Shop modal: Themes, Employees, Passes, Battle Pass, Subscribe.
+-- ShopUI.client.lua  (LocalScript)
+-- IGC cash shop — cosmetics and game passes overview.
 
 local Players           = game:GetService("Players")
+local TweenService      = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local MarketplaceService = game:GetService("MarketplaceService")
 
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local Modules   = ReplicatedStorage:WaitForChild("Modules")
-local Constants = require(Modules.Constants)
+local GOLD      = Color3.fromRGB(255, 200, 0)
+local HOT_PINK  = Color3.fromRGB(255, 20, 147)
+local DARK_BG   = Color3.fromRGB(12, 8, 22)
+local CARD_BG   = Color3.fromRGB(28, 16, 46)
+local NEON_GREEN= Color3.fromRGB(0, 220, 100)
 
-local Remotes       = ReplicatedStorage:WaitForChild("Remotes")
-local HireEmployee  = Remotes:WaitForChild("HireEmployee")
+local function corner(p, r)
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 10); c.Parent = p
+end
+local function stroke(p, col, t)
+	local s = Instance.new("UIStroke"); s.Color = col or GOLD; s.Thickness = t or 2; s.Parent = p
+end
 
--- ── Root GUI ──────────────────────────────────────────────────────────────────
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name  = "ShopUI"
-screenGui.ResetOnSpawn = false
-screenGui.Enabled = false
-screenGui.Parent  = playerGui
+local screen = Instance.new("ScreenGui")
+screen.Name           = "ShopUI"
+screen.ResetOnSpawn   = false
+screen.IgnoreGuiInset = true
+screen.Enabled        = false
+screen.Parent         = playerGui
 
 local overlay = Instance.new("Frame")
-overlay.Size  = UDim2.new(1, 0, 1, 0)
-overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-overlay.BackgroundTransparency = 0.5
+overlay.Size = UDim2.new(1,0,1,0)
+overlay.BackgroundColor3 = Color3.new(0,0,0)
+overlay.BackgroundTransparency = 0.55
 overlay.BorderSizePixel = 0
-overlay.Parent = screenGui
-
-local panel = Instance.new("Frame")
-panel.Size  = UDim2.new(0, 580, 0, 480)
-panel.Position = UDim2.new(0.5, -290, 0.5, -240)
-panel.BackgroundColor3 = Color3.fromRGB(22, 22, 35)
-panel.BorderSizePixel  = 0
-panel.Parent = screenGui
-do
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 14)
-	corner.Parent = panel
-end
-
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size  = UDim2.new(1, 0, 0, 44)
-titleLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-titleLabel.BorderSizePixel  = 0
-titleLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-titleLabel.TextSize   = 22
-titleLabel.Font       = Enum.Font.GothamBold
-titleLabel.Text       = "Shop"
-titleLabel.Parent     = panel
-do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,14); c.Parent = titleLabel end
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size  = UDim2.new(0, 34, 0, 34)
-closeBtn.Position = UDim2.new(1, -40, 0, 5)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.BorderSizePixel  = 0
-closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
-closeBtn.TextSize   = 20
-closeBtn.Font       = Enum.Font.GothamBold
-closeBtn.Text       = "×"
-closeBtn.Parent     = panel
-do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,8); c.Parent = closeBtn end
-closeBtn.MouseButton1Click:Connect(function() screenGui.Enabled = false end)
-
--- ── Tab bar ───────────────────────────────────────────────────────────────────
-
-local TABS = { "Themes", "Employees", "Passes", "Battle Pass", "Subscribe" }
-local tabBar = Instance.new("Frame")
-tabBar.Size  = UDim2.new(1, -10, 0, 36)
-tabBar.Position = UDim2.new(0, 5, 0, 48)
-tabBar.BackgroundTransparency = 1
-tabBar.BorderSizePixel = 0
-tabBar.Parent = panel
-do
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.Padding = UDim.new(0, 4)
-	layout.Parent  = tabBar
-end
-
-local contentFrame = Instance.new("ScrollingFrame")
-contentFrame.Size  = UDim2.new(1, -10, 1, -100)
-contentFrame.Position = UDim2.new(0, 5, 0, 92)
-contentFrame.BackgroundTransparency = 1
-contentFrame.BorderSizePixel = 0
-contentFrame.ScrollBarThickness = 4
-contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-contentFrame.Parent = panel
-
-local tabButtons = {}
-local activeTab  = nil
-
-local function clearContent()
-	for _, child in ipairs(contentFrame:GetChildren()) do
-		if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
-			child:Destroy()
-		end
-	end
-end
-
--- ── Content builders ──────────────────────────────────────────────────────────
-
-local function addCard(parent, labelText, subText, btnText, btnColor, onClick)
-	local card = Instance.new("Frame")
-	card.Size  = UDim2.new(1, -8, 0, 72)
-	card.BackgroundColor3 = Color3.fromRGB(38, 38, 58)
-	card.BorderSizePixel  = 0
-	card.Parent = parent
-	do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,8); c.Parent = card end
-
-	local lbl = Instance.new("TextLabel")
-	lbl.Size  = UDim2.new(0.65, 0, 0.55, 0)
-	lbl.Position = UDim2.new(0, 8, 0, 4)
-	lbl.BackgroundTransparency = 1
-	lbl.TextColor3 = Color3.fromRGB(255,255,255)
-	lbl.TextSize   = 15
-	lbl.Font       = Enum.Font.GothamBold
-	lbl.Text       = labelText
-	lbl.TextXAlignment = Enum.TextXAlignment.Left
-	lbl.Parent = card
-
-	local sub = Instance.new("TextLabel")
-	sub.Size  = UDim2.new(0.65, 0, 0.38, 0)
-	sub.Position = UDim2.new(0, 8, 0.6, 0)
-	sub.BackgroundTransparency = 1
-	sub.TextColor3 = Color3.fromRGB(160,160,180)
-	sub.TextSize   = 12
-	sub.Font       = Enum.Font.Gotham
-	sub.Text       = subText
-	sub.TextXAlignment = Enum.TextXAlignment.Left
-	sub.Parent = card
-
-	local btn = Instance.new("TextButton")
-	btn.Size  = UDim2.new(0, 90, 0, 36)
-	btn.Position = UDim2.new(1, -98, 0.5, -18)
-	btn.BackgroundColor3 = btnColor or Color3.fromRGB(60, 120, 220)
-	btn.BorderSizePixel  = 0
-	btn.TextColor3 = Color3.fromRGB(255,255,255)
-	btn.TextSize   = 14
-	btn.Font       = Enum.Font.GothamBold
-	btn.Text       = btnText
-	btn.Parent = card
-	do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = btn end
-	btn.MouseButton1Click:Connect(onClick)
-
-	return card
-end
-
-local function buildThemes()
-	clearContent()
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
-	layout.Parent  = contentFrame
-
-	for key, theme in pairs(Constants.THEMES) do
-		local priceText = theme.robux == 0 and "Free" or (theme.robux .. " R$")
-		addCard(contentFrame, theme.name, priceText, "Buy", nil, function()
-			-- In production: prompt MarketplaceService purchase
-			-- MarketplaceService:PromptProductPurchase(player, PRODUCT_ID)
-			print("[Shop] Theme purchase:", key, priceText)
-		end)
-	end
-
-	contentFrame.CanvasSize = UDim2.new(0, 0, 0, #Constants.THEMES * 78 + 10)
-end
-
-local function buildEmployees()
-	clearContent()
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
-	layout.Parent  = contentFrame
-
-	for key, emp in pairs(Constants.EMPLOYEES) do
-		addCard(
-			contentFrame,
-			emp.displayName,
-			emp.hireCost .. " IGC  •  " .. emp.salary .. " IGC/min",
-			"Hire",
-			Color3.fromRGB(60, 180, 80),
-			function()
-				HireEmployee:FireServer(key)
-			end
-		)
-	end
-
-	contentFrame.CanvasSize = UDim2.new(0, 0, 0, 3 * 78 + 10)
-end
-
-local function buildPasses()
-	clearContent()
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
-	layout.Parent  = contentFrame
-
-	local passes = {
-		{ name = "Speedup Pass (1 wk)",  price = "250 R$", key = "speedup_week" },
-		{ name = "Quick Expansion",       price = "75 R$",  key = "quick_expansion" },
-		{ name = "500 IGC",               price = "35 R$",  key = "cash_small" },
-		{ name = "1,500 IGC",             price = "75 R$",  key = "cash_medium" },
-		{ name = "4,000 IGC",             price = "150 R$", key = "cash_large" },
-		{ name = "Premium Speedup (perm)",price = "399 R$", key = "premium_speedup" },
-		{ name = "Exec Chef Outfit",      price = "299 R$", key = "exec_chef_outfit" },
-		{ name = "All Themes Pack",       price = "999 R$", key = "all_themes_pack" },
-		{ name = "Premium Dish Pack",     price = "150 R$", key = "premium_dish_pack" },
-	}
-
-	for _, p in ipairs(passes) do
-		local pk = p.key
-		addCard(contentFrame, p.name, p.price, "Buy", nil, function()
-			print("[Shop] Purchase:", pk)
-		end)
-	end
-
-	contentFrame.CanvasSize = UDim2.new(0, 0, 0, #passes * 78 + 10)
-end
-
-local function buildBattlePass()
-	clearContent()
-	addCard(contentFrame, "Battle Pass", "350 R$ — Season 1  •  10 tiers of cosmetics", "Buy", nil, function()
-		print("[Shop] Battle pass purchase")
-	end)
-	contentFrame.CanvasSize = UDim2.new(0, 0, 0, 82)
-end
-
-local function buildSubscribe()
-	clearContent()
-	addCard(
-		contentFrame,
-		"VIP Membership",
-		"300 R$/month — 2× profit, speedup, exclusive cosmetics",
-		"Subscribe",
-		Color3.fromRGB(180, 130, 0),
-		function()
-			print("[Shop] VIP subscribe")
-		end
-	)
-	contentFrame.CanvasSize = UDim2.new(0, 0, 0, 82)
-end
-
-local TAB_BUILDERS = {
-	Themes      = buildThemes,
-	Employees   = buildEmployees,
-	Passes      = buildPasses,
-	["Battle Pass"] = buildBattlePass,
-	Subscribe   = buildSubscribe,
-}
-
--- ── Create tab buttons ────────────────────────────────────────────────────────
-
-local function selectTab(tabName)
-	activeTab = tabName
-	for name, btn in pairs(tabButtons) do
-		if name == tabName then
-			btn.BackgroundColor3 = Color3.fromRGB(60, 120, 220)
-		else
-			btn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-		end
-	end
-	TAB_BUILDERS[tabName]()
-end
-
-for _, tabName in ipairs(TABS) do
-	local btn = Instance.new("TextButton")
-	btn.Size  = UDim2.new(0, 90, 1, 0)
-	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-	btn.BorderSizePixel  = 0
-	btn.TextColor3 = Color3.fromRGB(255,255,255)
-	btn.TextSize   = 13
-	btn.Font       = Enum.Font.GothamBold
-	btn.Text       = tabName
-	btn.Parent     = tabBar
-	do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = btn end
-
-	tabButtons[tabName] = btn
-	local tn = tabName
-	btn.MouseButton1Click:Connect(function() selectTab(tn) end)
-end
-
--- Select first tab by default
-screenGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-	if screenGui.Enabled then
-		selectTab("Employees")
+overlay.ZIndex = 1
+overlay.Parent = screen
+overlay.InputBegan:Connect(function(inp)
+	if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+		screen.Enabled = false
 	end
 end)
+
+local panel = Instance.new("Frame")
+panel.Size = UDim2.new(0,500,0,460)
+panel.Position = UDim2.new(0.5,-250,0.5,-230)
+panel.BackgroundColor3 = DARK_BG
+panel.BorderSizePixel = 0
+panel.ZIndex = 2
+panel.Parent = screen
+corner(panel, 16)
+stroke(panel, GOLD, 2)
+
+-- Header
+local hdr = Instance.new("Frame")
+hdr.Size = UDim2.new(1,0,0,52)
+hdr.BackgroundColor3 = GOLD
+hdr.BorderSizePixel = 0
+hdr.ZIndex = 3
+hdr.Parent = panel
+corner(hdr, 14)
+local hdrFix = Instance.new("Frame")
+hdrFix.Size = UDim2.new(1,0,0.5,0)
+hdrFix.Position = UDim2.new(0,0,0.5,0)
+hdrFix.BackgroundColor3 = GOLD
+hdrFix.BorderSizePixel = 0
+hdrFix.ZIndex = 3
+hdrFix.Parent = hdr
+
+local hdrL = Instance.new("TextLabel")
+hdrL.Size = UDim2.new(1,-60,1,0)
+hdrL.Position = UDim2.new(0,16,0,0)
+hdrL.BackgroundTransparency = 1
+hdrL.Text = "🛍  SHOP"
+hdrL.TextSize = 22
+hdrL.TextColor3 = Color3.fromRGB(20,10,0)
+hdrL.Font = Enum.Font.GothamBlack
+hdrL.TextXAlignment = Enum.TextXAlignment.Left
+hdrL.ZIndex = 4
+hdrL.Parent = hdr
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0,40,0,40)
+closeBtn.Position = UDim2.new(1,-48,0,6)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+closeBtn.BorderSizePixel = 0
+closeBtn.TextColor3 = Color3.new(1,1,1)
+closeBtn.TextSize = 20
+closeBtn.Font = Enum.Font.GothamBlack
+closeBtn.Text = "✕"
+closeBtn.ZIndex = 5
+closeBtn.Parent = hdr
+corner(closeBtn, 8)
+closeBtn.MouseButton1Click:Connect(function() screen.Enabled = false end)
+
+-- Info text
+local infoL = Instance.new("TextLabel")
+infoL.Size = UDim2.new(1,-24,0,44)
+infoL.Position = UDim2.new(0,12,0,58)
+infoL.BackgroundTransparency = 1
+infoL.Text = "Premium content coming soon! Earn IGC by serving customers to upgrade your diner."
+infoL.TextSize = 13
+infoL.TextColor3 = Color3.fromRGB(160,140,190)
+infoL.Font = Enum.Font.Gotham
+infoL.TextWrapped = true
+infoL.TextXAlignment = Enum.TextXAlignment.Left
+infoL.ZIndex = 3
+infoL.Parent = panel
+
+-- Item cards
+local ITEMS = {
+	{ name="500 IGC",           desc="Quick cash boost",             icon="💰", tag="35 R$",   color=GOLD        },
+	{ name="Premium Speedup",   desc="2× earnings for a week",       icon="⚡", tag="399 R$",  color=Color3.fromRGB(0,180,255)  },
+	{ name="All Themes Pack",   desc="Unlock every restaurant theme",icon="🎨", tag="999 R$",  color=HOT_PINK    },
+	{ name="VIP Membership",    desc="2× earnings forever",          icon="👑", tag="300 R$/mo",color=GOLD        },
+	{ name="Premium Dish Pack", desc="Unlock 5 premium recipes",     icon="🍣", tag="150 R$",  color=NEON_GREEN  },
+}
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1,-16,1,-110)
+scroll.Position = UDim2.new(0,8,0,106)
+scroll.BackgroundTransparency = 1
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 5
+scroll.ScrollBarImageColor3 = GOLD
+scroll.CanvasSize = UDim2.new(0,0,0,0)
+scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scroll.ZIndex = 3
+scroll.Parent = panel
+
+local listL = Instance.new("UIListLayout")
+listL.Padding = UDim.new(0,8)
+listL.Parent = scroll
+
+local shopPad = Instance.new("UIPadding")
+shopPad.PaddingTop    = UDim.new(0,4)
+shopPad.PaddingLeft   = UDim.new(0,4)
+shopPad.PaddingRight  = UDim.new(0,4)
+shopPad.PaddingBottom = UDim.new(0,8)
+shopPad.Parent = scroll
+
+for _, item in ipairs(ITEMS) do
+	local card = Instance.new("Frame")
+	card.Size = UDim2.new(1,0,0,68)
+	card.BackgroundColor3 = CARD_BG
+	card.BorderSizePixel = 0
+	card.ZIndex = 4
+	card.Parent = scroll
+	corner(card, 10)
+	stroke(card, item.color, 1)
+
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(0,5,1,-10)
+	bar.Position = UDim2.new(0,0,0,5)
+	bar.BackgroundColor3 = item.color
+	bar.BorderSizePixel = 0
+	bar.ZIndex = 5
+	bar.Parent = card; corner(bar, 3)
+
+	local ico = Instance.new("TextLabel")
+	ico.Size = UDim2.new(0,44,0,44)
+	ico.Position = UDim2.new(0,10,0.5,-22)
+	ico.BackgroundTransparency = 1
+	ico.Text = item.icon
+	ico.TextSize = 28
+	ico.ZIndex = 5
+	ico.Font = Enum.Font.GothamBold
+	ico.Parent = card
+
+	local nameL = Instance.new("TextLabel")
+	nameL.Size = UDim2.new(0,240,0,24)
+	nameL.Position = UDim2.new(0,62,0,8)
+	nameL.BackgroundTransparency = 1
+	nameL.Text = item.name
+	nameL.TextSize = 15
+	nameL.TextColor3 = Color3.new(1,1,1)
+	nameL.Font = Enum.Font.GothamBold
+	nameL.TextXAlignment = Enum.TextXAlignment.Left
+	nameL.ZIndex = 5
+	nameL.Parent = card
+
+	local descL = Instance.new("TextLabel")
+	descL.Size = UDim2.new(0,240,0,18)
+	descL.Position = UDim2.new(0,62,0,34)
+	descL.BackgroundTransparency = 1
+	descL.Text = item.desc
+	descL.TextSize = 11
+	descL.TextColor3 = Color3.fromRGB(160,140,185)
+	descL.Font = Enum.Font.Gotham
+	descL.TextXAlignment = Enum.TextXAlignment.Left
+	descL.ZIndex = 5
+	descL.Parent = card
+
+	local buyBtn = Instance.new("TextButton")
+	buyBtn.Size = UDim2.new(0,106,0,38)
+	buyBtn.Position = UDim2.new(1,-114,0.5,-19)
+	buyBtn.BackgroundColor3 = item.color
+	buyBtn.BorderSizePixel = 0
+	buyBtn.TextColor3 = Color3.fromRGB(10,5,20)
+	buyBtn.TextSize = 14
+	buyBtn.Font = Enum.Font.GothamBlack
+	buyBtn.Text = item.tag
+	buyBtn.ZIndex = 6
+	buyBtn.Parent = card
+	corner(buyBtn, 8)
+	-- Robux purchases handled by DevProducts in live game; show info toast for now
+	buyBtn.MouseButton1Click:Connect(function()
+		-- Would open Roblox purchase prompt in production
+	end)
+end

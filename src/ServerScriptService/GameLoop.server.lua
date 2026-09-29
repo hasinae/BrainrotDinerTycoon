@@ -1,83 +1,56 @@
--- GameLoop.server.lua
--- Bootstraps remotes and ties together all server systems.
+-- GameLoop.server.lua  (Script — bootstraps remotes and wires server systems)
 
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
--- ── Create Remotes folder ─────────────────────────────────────────────────────
+-- ── Remotes (created FIRST so client never hangs on WaitForChild) ─────────────
 local Remotes = Instance.new("Folder")
 Remotes.Name  = "Remotes"
 Remotes.Parent = ReplicatedStorage
 
-local function makeRemoteEvent(name)
-	local r = Instance.new("RemoteEvent")
-	r.Name  = name
-	r.Parent = Remotes
-	return r
+-- Wrap everything else so a crash here doesn't kill the Remotes
+local ok, err = pcall(function()
+
+local function evt(name)
+	local r = Instance.new("RemoteEvent"); r.Name = name; r.Parent = Remotes; return r
+end
+local function fn(name)
+	local r = Instance.new("RemoteFunction"); r.Name = name; r.Parent = Remotes; return r
 end
 
-local function makeRemoteFunction(name)
-	local r = Instance.new("RemoteFunction")
-	r.Name  = name
-	r.Parent = Remotes
-	return r
-end
+local UpdateBalance     = evt("UpdateBalance")
+local UpdateProgress    = evt("UpdateProgress")
+local Notification      = evt("Notification")
+local UpdateLeaderboard = evt("UpdateLeaderboard")
+local HireEmployee      = evt("HireEmployee")
+local FireEmployee      = evt("FireEmployee")
+local DeleteObject      = evt("DeleteObject")
+local SpendMoney        = evt("SpendMoney")
+local EquipCosmetic     = evt("EquipCosmetic")
+local GetPlayerData     = fn("GetPlayerData")
+local PlaceObject       = fn("PlaceObject")
+local Expand            = fn("Expand")
 
-makeRemoteEvent("UpdateBalance")
-makeRemoteEvent("DeleteObject")
-makeRemoteEvent("SpendMoney")
-makeRemoteEvent("Notification")
-makeRemoteEvent("UpdateLeaderboard")
-makeRemoteEvent("HireEmployee")
-makeRemoteEvent("FireEmployee")
-makeRemoteEvent("EquipCosmetic")
+-- ── Require modules (these are .lua ModuleScripts, safe to require) ───────────
+local DataStore   = require(ServerScriptService:WaitForChild("DataStore"))
+local MoneyServer = require(ServerScriptService:WaitForChild("MoneyServer"))
+MoneyServer.init(DataStore, UpdateBalance)
 
-makeRemoteFunction("PlaceObject")
-makeRemoteFunction("Expand")
-makeRemoteFunction("GetPlayerData")
+local Modules         = ReplicatedStorage:WaitForChild("Modules")
+local Constants       = require(Modules.Constants)
+local EmployeeManager = require(Modules.EmployeeManager)
 
--- ── Create bridge ModuleScripts so server scripts can cross-require ──────────
--- DataPersistenceBridge wraps DataPersistence so other scripts can require it
-local dpBridge = Instance.new("ModuleScript")
-dpBridge.Name  = "DataPersistenceBridge"
-dpBridge.Parent = game:GetService("ServerScriptService")
-dpBridge.Source = [[
-	return require(game:GetService("ServerScriptService"):WaitForChild("DataPersistence.server"))
-]]
-
-local msBridge = Instance.new("ModuleScript")
-msBridge.Name  = "MoneyServerBridge"
-msBridge.Parent = game:GetService("ServerScriptService")
-msBridge.Source = [[
-	return require(game:GetService("ServerScriptService"):WaitForChild("MoneySystem.server"))
-]]
-
--- ── GetPlayerData remote (client requests its own data snapshot) ─────────────
-local GetPlayerData = Remotes:WaitForChild("GetPlayerData")
+-- ── GetPlayerData ─────────────────────────────────────────────────────────────
 GetPlayerData.OnServerInvoke = function(player)
-	-- Wait briefly for data to load
-	local dp
-	for _ = 1, 10 do
-		dp = pcall(function()
-			return require(game:GetService("ServerScriptService"):WaitForChild("DataPersistenceBridge")).get(player)
-		end)
-		if dp then break end
-		task.wait(0.5)
-	end
-	local ok, data = pcall(function()
-		return require(game:GetService("ServerScriptService"):WaitForChild("DataPersistenceBridge")).get(player)
-	end)
-	return ok and data or nil
+	return DataStore.waitForData(player, 10)
 end
 
--- ── Hire/Fire remotes ──────────────────────────────────────────────────────────
-local HireEmployee = Remotes:WaitForChild("HireEmployee")
+-- ── Hire employee ─────────────────────────────────────────────────────────────
 HireEmployee.OnServerEvent:Connect(function(player, typeKey)
-	local ok, data = pcall(function()
-		return require(game:GetService("ServerScriptService"):WaitForChild("DataPersistenceBridge")).get(player)
-	end)
-	if not ok or not data then return end
+	local data = DataStore.get(player)
+	if not data then return end
 
-	local Constants = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Constants"))
 	local cfg = Constants.EMPLOYEES[typeKey]
 	if not cfg then return end
 
@@ -86,42 +59,90 @@ HireEmployee.OnServerEvent:Connect(function(player, typeKey)
 	for _, e in ipairs(data.employees) do
 		if e.type == typeKey then count = count + 1 end
 	end
-	if count >= cfg.maxPerRestaurant then return end
+	if count >= cfg.maxPerRestaurant then
+		Notification:FireClient(player, "❌ Max " .. cfg.displayName .. " employees reached!")
+		return
+	end
 
-	-- Charge
-	local MS = require(game:GetService("ServerScriptService"):WaitForChild("MoneyServerBridge"))
-	if not MS.spend(player, cfg.hireCost, "hire_" .. typeKey) then return end
+	if not MoneyServer.spend(player, cfg.hireCost) then
+		Notification:FireClient(player, "❌ Not enough IGC!")
+		return
+	end
 
 	local newId = #data.employees + 1
-	local emp = { id = newId, type = typeKey, name = cfg.displayName }
+	local emp   = { id = newId, type = typeKey, name = cfg.displayName, salary = cfg.salary }
 	table.insert(data.employees, emp)
+	Notification:FireClient(player, "✅ Hired " .. cfg.displayName .. "!")
 
-	-- Spawn AI
-	require(game:GetService("ServerScriptService"):WaitForChild("EmployeeAI.server")).spawnForPlayer(
-		player, emp, Vector3.new((player.UserId % 20) * 35, 0, 0), {}
-	)
+	-- Tell EmployeeAI to spawn this character
+	local EmployeeAI = require(ServerScriptService:WaitForChild("EmpAI"))
+	local plotOrigin = EmployeeAI.getPlotOrigin(player)
+	if plotOrigin then
+		EmployeeAI.spawnEmployee(player, emp, plotOrigin)
+	end
+
+	-- Push fresh data back to client
+	UpdateBalance:FireClient(player, data.money.currentBalance, data.money.totalEarned)
 end)
 
-local FireEmployee = Remotes:WaitForChild("FireEmployee")
+-- ── Fire employee ─────────────────────────────────────────────────────────────
 FireEmployee.OnServerEvent:Connect(function(player, empId)
-	local ok, data = pcall(function()
-		return require(game:GetService("ServerScriptService"):WaitForChild("DataPersistenceBridge")).get(player)
-	end)
-	if not ok or not data then return end
+	local data = DataStore.get(player)
+	if not data then return end
 
 	for i, emp in ipairs(data.employees) do
 		if emp.id == empId then
-			local Constants = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Constants"))
 			local cfg = Constants.EMPLOYEES[emp.type]
 			if cfg then
 				local refund = math.floor(cfg.hireCost * 0.5)
-				require(game:GetService("ServerScriptService"):WaitForChild("MoneyServerBridge")).earn(player, refund)
+				MoneyServer.earn(player, refund)
+				Notification:FireClient(player, "💸 Fired " .. emp.name .. " (+" .. refund .. " IGC refund)")
+				task.delay(1.5, function()
+					Notification:FireClient(player, "👥 Open BUILD to hire a replacement!")
+				end)
 			end
-			require(game:GetService("ServerScriptService"):WaitForChild("EmployeeAI.server")).fireEmployee(player, empId)
+			local EmployeeAI = require(ServerScriptService:WaitForChild("EmpAI"))
+			EmployeeAI.removeEmployee(player, empId)
 			table.remove(data.employees, i)
 			break
 		end
 	end
 end)
 
-print("[GameLoop] Server initialized")
+-- ── SpendMoney (client-initiated, validated here) ────────────────────────────
+SpendMoney.OnServerEvent:Connect(function(player, amount, _reason)
+	if type(amount) ~= "number" or amount <= 0 then return end
+	MoneyServer.spend(player, amount)
+end)
+
+-- ── Salary deduction loop ─────────────────────────────────────────────────────
+task.spawn(function()
+	while true do
+		task.wait(60)
+		for _, player in ipairs(Players:GetPlayers()) do
+			MoneyServer.deductSalaries(player)
+		end
+	end
+end)
+
+-- ── Sync balance when player's data becomes ready ────────────────────────────
+Players.PlayerAdded:Connect(function(player)
+	DataStore.waitForData(player, 15)
+	MoneyServer.pushBalance(player)
+	-- Spawn employees that were in saved data
+	task.delay(1, function()
+		local data = DataStore.get(player)
+		if not data then return end
+		local EmployeeAI = require(ServerScriptService:WaitForChild("EmpAI"))
+		local plotOrigin = EmployeeAI.getPlotOrigin(player)
+		if plotOrigin then
+			for _, emp in ipairs(data.employees) do
+				EmployeeAI.spawnEmployee(player, emp, plotOrigin)
+			end
+		end
+	end)
+end)
+
+print("[GameLoop] Server ready ✅")
+end)  -- end pcall
+if not ok then warn("[GameLoop] Error during init:", err) end

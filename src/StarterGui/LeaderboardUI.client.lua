@@ -1,5 +1,5 @@
--- LeaderboardUI.client.lua
--- Displays top-100 leaderboard boards; refreshes when server pushes data.
+-- LeaderboardUI.client.lua  (LocalScript)
+-- Shows top earners in this session.
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,202 +7,149 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local Remotes           = ReplicatedStorage:WaitForChild("Remotes")
-local UpdateLeaderboard = Remotes:WaitForChild("UpdateLeaderboard")
+local GOLD    = Color3.fromRGB(255, 200, 0)
+local DARK_BG = Color3.fromRGB(12, 8, 22)
+local CARD_BG = Color3.fromRGB(28, 16, 46)
+local HOT_PINK= Color3.fromRGB(255, 20, 147)
 
-local Modules   = ReplicatedStorage:WaitForChild("Modules")
-local LBManager = require(Modules.LeaderboardManager)
+local function corner(p, r)
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 10); c.Parent = p
+end
+local function stroke(p, col, t)
+	local s = Instance.new("UIStroke"); s.Color = col or GOLD; s.Thickness = t or 2; s.Parent = p
+end
 
--- ── Root GUI ──────────────────────────────────────────────────────────────────
+local screen = Instance.new("ScreenGui")
+screen.Name           = "LeaderboardUI"
+screen.ResetOnSpawn   = false
+screen.IgnoreGuiInset = true
+screen.Enabled        = false
+screen.Parent         = playerGui
 
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name  = "LeaderboardUI"
-screenGui.ResetOnSpawn = false
-screenGui.Enabled = false
-screenGui.Parent  = playerGui
+local overlay = Instance.new("Frame")
+overlay.Size = UDim2.new(1,0,1,0)
+overlay.BackgroundColor3 = Color3.new(0,0,0)
+overlay.BackgroundTransparency = 0.55
+overlay.BorderSizePixel = 0
+overlay.ZIndex = 1
+overlay.Parent = screen
+overlay.InputBegan:Connect(function(inp)
+	if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+		screen.Enabled = false
+	end
+end)
 
 local panel = Instance.new("Frame")
-panel.Size  = UDim2.new(0, 520, 0, 500)
-panel.Position = UDim2.new(0.5, -260, 0.5, -250)
-panel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-panel.BorderSizePixel  = 0
-panel.Parent = screenGui
-do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,14); c.Parent = panel end
+panel.Size = UDim2.new(0,400,0,440)
+panel.Position = UDim2.new(0.5,-200,0.5,-220)
+panel.BackgroundColor3 = DARK_BG
+panel.BorderSizePixel = 0
+panel.ZIndex = 2
+panel.Parent = screen
+corner(panel, 16)
+stroke(panel, GOLD, 2)
 
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size  = UDim2.new(1, 0, 0, 44)
-titleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
-titleLabel.BorderSizePixel  = 0
-titleLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-titleLabel.TextSize   = 22
-titleLabel.Font       = Enum.Font.GothamBold
-titleLabel.Text       = "Leaderboards"
-titleLabel.Parent     = panel
-do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,14); c.Parent = titleLabel end
+local hdr = Instance.new("Frame")
+hdr.Size = UDim2.new(1,0,0,52)
+hdr.BackgroundColor3 = GOLD
+hdr.BorderSizePixel = 0
+hdr.ZIndex = 3
+hdr.Parent = panel
+corner(hdr, 14)
+local hdrFix = Instance.new("Frame")
+hdrFix.Size = UDim2.new(1,0,0.5,0)
+hdrFix.Position = UDim2.new(0,0,0.5,0)
+hdrFix.BackgroundColor3 = GOLD
+hdrFix.BorderSizePixel = 0
+hdrFix.ZIndex = 3
+hdrFix.Parent = hdr
+
+local hdrL = Instance.new("TextLabel")
+hdrL.Size = UDim2.new(1,-60,1,0)
+hdrL.Position = UDim2.new(0,16,0,0)
+hdrL.BackgroundTransparency = 1
+hdrL.Text = "🏆  LEADERBOARD"
+hdrL.TextSize = 22
+hdrL.TextColor3 = Color3.fromRGB(20,10,0)
+hdrL.Font = Enum.Font.GothamBlack
+hdrL.TextXAlignment = Enum.TextXAlignment.Left
+hdrL.ZIndex = 4
+hdrL.Parent = hdr
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size  = UDim2.new(0, 34, 0, 34)
-closeBtn.Position = UDim2.new(1, -40, 0, 5)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.BorderSizePixel  = 0
-closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
-closeBtn.TextSize   = 20
-closeBtn.Font       = Enum.Font.GothamBold
-closeBtn.Text       = "×"
-closeBtn.Parent     = panel
-do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,8); c.Parent = closeBtn end
-closeBtn.MouseButton1Click:Connect(function() screenGui.Enabled = false end)
+closeBtn.Size = UDim2.new(0,40,0,40)
+closeBtn.Position = UDim2.new(1,-48,0,6)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+closeBtn.BorderSizePixel = 0
+closeBtn.TextColor3 = Color3.new(1,1,1)
+closeBtn.TextSize = 20
+closeBtn.Font = Enum.Font.GothamBlack
+closeBtn.Text = "✕"
+closeBtn.ZIndex = 5
+closeBtn.Parent = hdr
+corner(closeBtn, 8)
+closeBtn.MouseButton1Click:Connect(function() screen.Enabled = false end)
 
--- ── Tab bar ───────────────────────────────────────────────────────────────────
+local content = Instance.new("Frame")
+content.Size = UDim2.new(1,-16,1,-68)
+content.Position = UDim2.new(0,8,0,60)
+content.BackgroundTransparency = 1
+content.ZIndex = 3
+content.Parent = panel
 
-local BOARD_KEYS = { "TopEarners", "WeeklyEarners", "FastestProgression", "Efficiency" }
-local BOARD_LABELS = {
-	TopEarners         = "All-Time",
-	WeeklyEarners      = "Weekly",
-	FastestProgression = "Fastest",
-	Efficiency         = "Efficiency",
-}
+local listL = Instance.new("UIListLayout")
+listL.Padding = UDim.new(0,6)
+listL.Parent = content
 
-local tabBar = Instance.new("Frame")
-tabBar.Size  = UDim2.new(1, -10, 0, 34)
-tabBar.Position = UDim2.new(0, 5, 0, 48)
-tabBar.BackgroundTransparency = 1
-tabBar.BorderSizePixel = 0
-tabBar.Parent = panel
-do
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.Padding = UDim.new(0, 4)
-	layout.Parent  = tabBar
+-- Populate with current session players
+local medals = {"🥇","🥈","🥉","4.","5."}
+local allPlayers = Players:GetPlayers()
+table.sort(allPlayers, function(a, b) return a.Name < b.Name end) -- placeholder sort
+
+for i, p in ipairs(allPlayers) do
+	if i > 5 then break end
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1,0,0,56)
+	row.BackgroundColor3 = CARD_BG
+	row.BorderSizePixel = 0
+	row.ZIndex = 4
+	row.Parent = content
+	corner(row, 10)
+	if i == 1 then stroke(row, GOLD, 2) end
+
+	local rank = Instance.new("TextLabel")
+	rank.Size = UDim2.new(0,44,1,0)
+	rank.Position = UDim2.new(0,8,0,0)
+	rank.BackgroundTransparency = 1
+	rank.Text = medals[i] or tostring(i).."."
+	rank.TextSize = 22
+	rank.TextColor3 = i==1 and GOLD or Color3.new(1,1,1)
+	rank.Font = Enum.Font.GothamBlack
+	rank.ZIndex = 5
+	rank.Parent = row
+
+	local nameL = Instance.new("TextLabel")
+	nameL.Size = UDim2.new(0.6,0,1,0)
+	nameL.Position = UDim2.new(0,56,0,0)
+	nameL.BackgroundTransparency = 1
+	nameL.Text = p.Name
+	nameL.TextSize = 16
+	nameL.TextColor3 = Color3.new(1,1,1)
+	nameL.Font = Enum.Font.GothamBold
+	nameL.TextXAlignment = Enum.TextXAlignment.Left
+	nameL.ZIndex = 5
+	nameL.Parent = row
 end
 
-local listFrame = Instance.new("ScrollingFrame")
-listFrame.Size  = UDim2.new(1, -10, 1, -92)
-listFrame.Position = UDim2.new(0, 5, 0, 88)
-listFrame.BackgroundTransparency = 1
-listFrame.BorderSizePixel = 0
-listFrame.ScrollBarThickness = 4
-listFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-listFrame.Parent = panel
-do
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 3)
-	layout.Parent  = listFrame
-	layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		listFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 6)
-	end)
+if #allPlayers == 0 then
+	local emptyL = Instance.new("TextLabel")
+	emptyL.Size = UDim2.new(1,0,0,60)
+	emptyL.BackgroundTransparency = 1
+	emptyL.Text = "No other players online.\nBe the first diner tycoon! 🍔"
+	emptyL.TextSize = 14
+	emptyL.TextColor3 = Color3.fromRGB(160,140,190)
+	emptyL.Font = Enum.Font.Gotham
+	emptyL.TextWrapped = true
+	emptyL.ZIndex = 4
+	emptyL.Parent = content
 end
-
-local currentData = {}
-local activeBoard = "TopEarners"
-local tabBtns     = {}
-
-local function renderBoard(boardKey)
-	for _, child in ipairs(listFrame:GetChildren()) do
-		if not child:IsA("UIListLayout") then child:Destroy() end
-	end
-
-	local rows = currentData[boardKey] or {}
-	for _, row in ipairs(rows) do
-		local rowFrame = Instance.new("Frame")
-		rowFrame.Size  = UDim2.new(1, 0, 0, 34)
-		rowFrame.BackgroundColor3 = row.rank % 2 == 0
-			and Color3.fromRGB(30, 30, 45) or Color3.fromRGB(38, 38, 55)
-		rowFrame.BorderSizePixel  = 0
-		rowFrame.Parent = listFrame
-		do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,5); c.Parent = rowFrame end
-
-		local rankLabel = Instance.new("TextLabel")
-		rankLabel.Size  = UDim2.new(0, 40, 1, 0)
-		rankLabel.BackgroundTransparency = 1
-		rankLabel.TextColor3 = row.rank <= 3
-			and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(180, 180, 200)
-		rankLabel.TextSize   = 14
-		rankLabel.Font       = Enum.Font.GothamBold
-		rankLabel.Text       = "#" .. row.rank
-		rankLabel.Parent     = rowFrame
-
-		local userLabel = Instance.new("TextLabel")
-		userLabel.Size  = UDim2.new(0.5, 0, 1, 0)
-		userLabel.Position = UDim2.new(0, 44, 0, 0)
-		userLabel.BackgroundTransparency = 1
-		userLabel.TextColor3 = Color3.fromRGB(220, 220, 255)
-		userLabel.TextSize   = 13
-		userLabel.Font       = Enum.Font.Gotham
-		userLabel.Text       = tostring(row.userId)
-		userLabel.TextXAlignment = Enum.TextXAlignment.Left
-		userLabel.Parent     = rowFrame
-
-		local valLabel = Instance.new("TextLabel")
-		valLabel.Size  = UDim2.new(0, 90, 1, 0)
-		valLabel.Position = UDim2.new(1, -95, 0, 0)
-		valLabel.BackgroundTransparency = 1
-		valLabel.TextColor3 = Color3.fromRGB(100, 220, 100)
-		valLabel.TextSize   = 13
-		valLabel.Font       = Enum.Font.GothamBold
-		valLabel.Text       = tostring(row.value)
-		valLabel.TextXAlignment = Enum.TextXAlignment.Right
-		valLabel.Parent     = rowFrame
-
-		-- Badge
-		local badge = LBManager.getBadge(row.rank)
-		if badge then
-			local badgeLabel = Instance.new("TextLabel")
-			badgeLabel.Size  = UDim2.new(0, 70, 0, 18)
-			badgeLabel.Position = UDim2.new(0, 160, 0.5, -9)
-			badgeLabel.BackgroundColor3 = Color3.fromRGB(180, 130, 0)
-			badgeLabel.BorderSizePixel  = 0
-			badgeLabel.TextColor3 = Color3.fromRGB(255,255,255)
-			badgeLabel.TextSize   = 10
-			badgeLabel.Font       = Enum.Font.GothamBold
-			badgeLabel.Text       = badge
-			badgeLabel.Parent     = rowFrame
-			do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,4); c.Parent = badgeLabel end
-		end
-	end
-
-	if #rows == 0 then
-		local empty = Instance.new("TextLabel")
-		empty.Size  = UDim2.new(1, 0, 0, 40)
-		empty.BackgroundTransparency = 1
-		empty.TextColor3 = Color3.fromRGB(120,120,140)
-		empty.TextSize   = 15
-		empty.Font       = Enum.Font.Gotham
-		empty.Text       = "No data yet — start serving dishes!"
-		empty.Parent     = listFrame
-	end
-end
-
-local function selectBoard(key)
-	activeBoard = key
-	for k, btn in pairs(tabBtns) do
-		btn.BackgroundColor3 = k == key
-			and Color3.fromRGB(60,120,220) or Color3.fromRGB(45,45,65)
-	end
-	renderBoard(key)
-end
-
-for _, key in ipairs(BOARD_KEYS) do
-	local btn = Instance.new("TextButton")
-	btn.Size  = UDim2.new(0, 112, 1, 0)
-	btn.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
-	btn.BorderSizePixel  = 0
-	btn.TextColor3 = Color3.fromRGB(255,255,255)
-	btn.TextSize   = 13
-	btn.Font       = Enum.Font.GothamBold
-	btn.Text       = BOARD_LABELS[key] or key
-	btn.Parent     = tabBar
-	do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = btn end
-	tabBtns[key] = btn
-	local k = key
-	btn.MouseButton1Click:Connect(function() selectBoard(k) end)
-end
-
-UpdateLeaderboard.OnClientEvent:Connect(function(allData)
-	currentData = allData
-	renderBoard(activeBoard)
-end)
-
-screenGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-	if screenGui.Enabled then selectBoard("TopEarners") end
-end)
